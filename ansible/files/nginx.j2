@@ -3,12 +3,12 @@ server {
 	charset utf-8;
 
 
-	location /static {
+	location /staticfiles {
 		alias {{ static_root }};
 	}
 
 	location / {
-		proxy_pass http://unix:/opt/xuening/demo-api/venv/run/gunicorn.sock;
+		proxy_pass {{ virtualenv_path }}/run/gunicorn.sock;
 		proxy_set_header Host $host;
 		proxy_set_header X-Real-IP $remote_addr;
 		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

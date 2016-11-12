@@ -1,10 +1,13 @@
 Cookbook:
 
+Vaulted Variables:
+ansible-vault edit unmentionables.yml --vault-password-file ~/.ansible_vault_pass
+
 Code deploy:
-ansible-playbook -i hosts deploy.yml --tags push
+ansible-playbook -i hosts deploy.yml --tags push --vault-password-file ~/.ansible_vault_pass
 
 Server Config deploy:
-ansible-playbook -i hosts deploy.yml
+ansible-playbook -i hosts deploy.yml --vault-password-file ~/.ansible_vault_pass
 
 Server Provision
-ansible-playbook -i hosts provision.yml
+ansible-playbook -i hosts provision.yml --vault-password-file ~/.ansible_vault_pass
