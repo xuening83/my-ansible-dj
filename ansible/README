@@ -1,0 +1,10 @@
+Cookbook:
+
+Code deploy:
+ansible-playbook -i hosts deploy.yml --tags push
+
+Server Config deploy:
+ansible-playbook -i hosts deploy.yml
+
+Server Provision
+ansible-playbook -i hosts provision.yml

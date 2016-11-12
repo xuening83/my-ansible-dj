@@ -6,42 +6,114 @@
   become: yes
 
   tasks:
-    - name: Clone/pull project repo
-      git: repo={{ project_repo }} dest={{ install_root }}/{{ project_name }} accept_hostkey=yes
+    - name: sync code
+      synchronize:
+        src={{ local_dir }}
+        dest={{ install_root }}
+        recursive=yes
+        mode=push
+      tags: push
+
+    - name: ensure file/dir permissions
+      file:
+        dest={{ install_root }}/{{ project_name }}
+        owner={{ ec2user }}
+        group={{ ec2user }}
+        recurse=yes
+      tags: push
       notify:
       - restart gunicorn
 
-    - name: install python packages
-      pip: requirements={{ install_root }}/{{ project_name }}/requirements.txt
+    # - name: Clone/pull project repo
+    #   git: repo={{ project_repo }} dest={{ install_root }}/{{ project_name }} accept_hostkey=yes
+    #   notify:
+    #   - restart gunicorn
+
+    - name: Install system packages
+      yum: name={{ item }} update_cache=yes
+      with_items: "{{ system_packages }}"
+
+
+    - name: Install supervisor
+      pip: name=supervisor
+      tags: packages
+      become: yes
+
+    - name: Install virtualenv
+      pip: name=virtualenv
+      tags: packages
+
+    - name: Create the Supervisor config file
+      template: src=files/supervisor.j2
+                dest=/etc/supervisor/conf.d/{{ project_name }}.conf
+                backup=yes
+      tags: push
+
+    - name: Create the virtualenv
+      command: virtualenv {{ virtualenv_path }} --no-site-packages
+               creates={{ virtualenv_path }}/bin/activate
+
+    - name: chmod venv/bin activate
+      file:
+        dest="{{ virtualenv_path }}/bin/activate"
+        mode="o+x"
+
+    - name: Create the virtualenv postactivate script to set environment variables
+      template: src=files/postactivate.j2
+                dest={{ virtualenv_path }}/bin/postactivate
+                owner={{ ec2user }}
+                group={{ ec2user }}
+                mode=0755
+                backup=yes
+      tags: push
+
+
+    - name: Ensure gunicorn is installed
+      pip: virtualenv={{ virtualenv_path }} name=gunicorn
+
+    - name: Create the Gunicorn script file
+      template: src=files/gunicorn.j2
+                dest={{ virtualenv_path }}/bin/gunicorn_start
+                owner={{ ec2user }}
+                group={{ ec2user }}
+                mode=0755
+                backup=yes
+      tags: push
+
+    - shell: "source {{ virtualenv_path }}/bin/activate; pip install -r {{ install_root }}/{{ project_name }}/requirements.txt"
       notify:
       - restart gunicorn
 
     - name: copy nginx config
-      template: src=files/nginx.j2 dest=/etc/nginx/sites-enabled/{{ project_name }}.conf
-      notify:
-      - restart nginx
+      template: src=files/nginx.j2 dest=/etc/nginx/sites-available/{{ project_name }}.conf
+      tags: push
+
+    - name: symlink nginx config
+      file: src=/etc/nginx/sites-available/{{ project_name }}.conf dest=/etc/nginx/sites-enabled/{{ project_name }}.conf state=link
+      tags: push
+      notify: restart nginx
 
     - name: django migrate
-      django_manage: command=migrate app_path={{ install_root }}/{{ project_name }} pythonpath={{ pythonpath }}
+      django_manage: command=migrate app_path={{ install_root }}/{{ project_name }} virtualenv={{ virtualenv_path }} settings={{ django_settings_file }}
 
     - name: django collectstatic
-      django_manage: command=collectstatic app_path={{ install_root }}/{{ project_name }} pythonpath={{ pythonpath }}
-
-    - name: copy gunicorn config
-      template: src=files/gunicorn.j2 dest=/etc/init/gunicorn.conf
-      notify:
-      - restart gunicorn
+      django_manage: command=collectstatic app_path={{ install_root }}/{{ project_name }} virtualenv={{ virtualenv_path }} settings={{ django_settings_file }}
 
     - name: make sure nginx server is running
       service: name=nginx state=started enabled=yes
 
-    - name: make sure gunicorn server is running
-      service: name=gunicorn state=started enabled=yes
+    - name: Re-read the Supervisor config files
+      supervisorctl: name={{ project_name }} state=present
+      tags: push
 
-  handlers: 
+    - name: Restart Supervisor
+      supervisorctl: name={{ project_name }} state=restarted
+      tags: push
+
+  handlers:
     - name: restart nginx
-      service: name=nginx state=restarted
+      shell: "sudo service nginx restart"
 
     - name: restart gunicorn
-      service: name=gunicorn state=restarted
+      shell: "sudo supervisorctl restart {{ project_name }}"
 # vim:ft=ansible:
